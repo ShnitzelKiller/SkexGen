@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import pickle 
 import random
+import os
 
 SKETCH_R = 1
 RADIUS_R = 1
@@ -136,28 +137,45 @@ class SketchData(torch.utils.data.Dataset):
 
 class CodeDataset(torch.utils.data.Dataset):
     """ Code dataset """
-    def __init__(self, datapath, maxlen):
+    def __init__(self, datapath, maxlen, voxel_path=None, names_path=None, res=32):
+        self.maxlen = maxlen
+        self.res = res
+        self.use_voxels = voxel_path is not None
         with open(datapath, 'rb') as f:
             self.data = pickle.load(f)
-        self.maxlen = maxlen
         print(len(self.data))
-        return
+        if voxel_path is not None:
+            with open(names_path,'rb') as f:
+                self.names = pickle.load(f)
+                assert(len(self.names) == len(self.data))
+            self.voxel_names = {s.split('_')[0] : os.path.join(voxel_path, s) for s in os.listdir(voxel_path) if s.endswith('npy')}
+
+            
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
-        code = self.data[index]
-        return code
+        if self.use_voxels:
+            name = self.names[index]
+            voxel_path = self.voxel_names[name]
+            occupancies = np.load(voxel_path)
+            occupancies = np.unpackbits(occupancies)
+            input = np.reshape(occupancies, (self.res,)*3)
+            return {'code': code, 'voxels': np.array(input, dtype=np.float32)}
+        else:
+            code = self.data[index]
+            return code
 
 
 class SketchExtData(torch.utils.data.Dataset):
     """ sketch dataset """
-    def __init__(self, data, invalid_uid, MAX_LEN):  
+    def __init__(self, data, invalid_uid, MAX_LEN, names=False):  
         self.maxlen = MAX_LEN 
         self.maxlen_pix = 0 
         self.maxlen_cmd = 0
         self.maxlen_ext = 0
+        self.names = names
 
         # Convert list to dictionary, signicantly faster for key indexing
         with open(invalid_uid, 'rb') as f:
@@ -254,7 +272,10 @@ class SketchExtData(torch.utils.data.Dataset):
         pix_seq, xy_seq, sketch_mask = self.prepare_batch_sketch(pixs, xys)
         cmd_seq, cmd_mask = self.prepare_batch_cmd(cmds)
     
-        return cmd_seq, cmd_mask, pix_seq, xy_seq, sketch_mask, flag_seq, ext_seq, ext_mask
+        if self.names:
+            return cmd_seq, cmd_mask, pix_seq, xy_seq, sketch_mask, flag_seq, ext_seq, ext_mask, vec_data['name']
+        else:
+            return cmd_seq, cmd_mask, pix_seq, xy_seq, sketch_mask, flag_seq, ext_seq, ext_mask
 
 
 class ExtData(torch.utils.data.Dataset):

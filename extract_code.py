@@ -12,7 +12,7 @@ def extract(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
     device = torch.device("cuda:0")
 
-    dataset = SketchExtData(args.data, args.invalid, args.maxlen)
+    dataset = SketchExtData(args.data, args.invalid, args.maxlen, names=True)
     dataloader = torch.utils.data.DataLoader(dataset, 
                                              shuffle=False, 
                                              batch_size=1024,
@@ -70,8 +70,9 @@ def extract(args):
         os.makedirs(args.output)
 
     total_z = []
+    allnames = []
     with tqdm(dataloader, unit="batch") as batch_data:
-        for cmd, cmd_mask, pix, xy, pix_mask, flag, ext, ext_mask in batch_data:
+        for cmd, cmd_mask, pix, xy, pix_mask, flag, ext, ext_mask, names in batch_data:
             with torch.no_grad():
                 cmd = cmd.to(device) 
                 pix = pix.to(device)
@@ -88,11 +89,15 @@ def extract(args):
            
             codes = np.concatenate((cmd_code, param_code, ext_code), 1)
             total_z.append(codes)
+            allnames.append(names)
 
     code = np.unique(np.vstack(total_z), return_counts=False, axis=0)
+    allnames = [name for l in allnames for name in l]
     print('Saving...')
     with open(os.path.join(args.output, 'code.pkl'), "wb") as tf:
         pickle.dump(code, tf)
+    with open(os.path.join(args.output, 'code_names.pkl'), "wb") as tf:
+        pickle.dump(allnames, tf)
 
 
 
