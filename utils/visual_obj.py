@@ -2,12 +2,13 @@ import os
 import argparse
 from pathlib import Path
 from tqdm import tqdm
+from functools import partial
 from multiprocessing import Pool
 from glob import glob 
 from converter import OBJReconverter
 from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from geometry.obj_parser import OBJParser
-from utils import write_stl_file
+from utils_occ import write_stl_file
 from OCC.Extend.DataExchange import write_step_file 
 
 import signal
@@ -34,8 +35,11 @@ NUM_TRHEADS = 36
 def find_files(folder, extension):
     return sorted([Path(os.path.join(folder, f)) for f in os.listdir(folder) if f.endswith(extension)])
 
+def find_files_nested(folder, extension):
+    return sorted([Path(os.path.join(folder, subfolder, f)) for subfolder in os.listdir(folder) for f in os.listdir(os.path.join(folder, subfolder)) if f.endswith(extension)])
 
-def run_parallel(project_folder):
+
+def run_parallel(project_folder, write_step=True):
     output_folder = project_folder
 
     param_objs = find_files(project_folder, 'param.obj')
@@ -92,11 +96,17 @@ def run_parallel(project_folder):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_folder", type=str, required=True)
+    parser.add_argument("--write_step", action='store_true')
+    parser.add_argument("--nested_folders", action='store_true')
+
     args = parser.parse_args()
 
     solids = []
-    cad_folders = sorted(glob(args.data_folder+'/*/'))
+    if args.nested_folders:
+        cad_folders = sorted(glob(args.data_folder+'/*/*/'))
+    else:
+        cad_folders = sorted(glob(args.data_folder+'/*/'))
 
-    convert_iter = Pool(NUM_TRHEADS).imap(run_parallel, cad_folders) 
+    convert_iter = Pool(NUM_TRHEADS).imap(partial(run_parallel, write_step=args.write_step), cad_folders) 
     for solid in tqdm(convert_iter, total=len(cad_folders)):
         pass

@@ -1,8 +1,4 @@
-import os 
-from OCC.Core.gp import gp_Pnt, gp_Vec, gp_Dir, gp_XYZ, gp_Ax3, gp_Trsf, gp_Pln
-from OCC.Display.SimpleGui import init_display
-from OCC.Core.StlAPI import StlAPI_Writer
-from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+import os
 from pathlib import Path
 import os 
 import numpy as np 
@@ -10,7 +6,6 @@ from pathlib import Path
 from geometry.obj_parser import OBJParser
 import math 
 from collections import OrderedDict
-from torch.optim.lr_scheduler import LambdaLR
 
 SKETCH_R = 1
 RADIUS_R = 1
@@ -47,47 +42,6 @@ def find_files(folder, extension):
 
 
 
-def plot(shape_list):
-    pyqt5_display, start_display, add_menu, add_function_to_menu = init_display('qt-pyqt5')
-    for shape in shape_list:
-        pyqt5_display.DisplayShape(shape, update=True)
-    start_display()
-
-
-def write_stl_file(a_shape, filename, mode="ascii", linear_deflection=0.001, angular_deflection=0.5):
-    """ export the shape to a STL file
-    Be careful, the shape first need to be explicitely meshed using BRepMesh_IncrementalMesh
-    a_shape: the topods_shape to export
-    filename: the filename
-    mode: optional, "ascii" by default. Can either be "binary"
-    linear_deflection: optional, default to 0.001. Lower, more occurate mesh
-    angular_deflection: optional, default to 0.5. Lower, more accurate_mesh
-    """
-    if a_shape.IsNull():
-        raise AssertionError("Shape is null.")
-    if mode not in ["ascii", "binary"]:
-        raise AssertionError("mode should be either ascii or binary")
-    if os.path.isfile(filename):
-        print("Warning: %s file already exists and will be replaced" % filename)
-    # first mesh the shape
-    mesh = BRepMesh_IncrementalMesh(a_shape, linear_deflection, False, angular_deflection, True)
-    #mesh.SetDeflection(0.05)
-    mesh.Perform()
-    if not mesh.IsDone():
-        raise AssertionError("Mesh is not done.")
-
-    stl_exporter = StlAPI_Writer()
-    if mode == "ascii":
-        stl_exporter.SetASCIIMode(True)
-    else:  # binary, just set the ASCII flag to False
-        stl_exporter.SetASCIIMode(False)
-    stl_exporter.Write(a_shape, filename)
-
-    if not os.path.isfile(filename):
-        raise IOError("File not written to disk.")
-
-
-
 def same_plane(plane1, plane2):
     same = True 
     trans1 = plane1['pt']
@@ -98,63 +52,6 @@ def same_plane(plane1, plane2):
         if v1['x'] != v2['x'] or v1['y'] != v2['y'] or v1['z'] != v2['z']:
             same = False 
     return same 
-
-
-def create_xyz(xyz):
-    return gp_XYZ(
-        xyz["x"],
-        xyz["y"],
-        xyz["z"]
-    )
-
-
-def get_ax3(transform_dict):
-    origin = create_xyz(transform_dict["origin"])
-    x_axis = create_xyz(transform_dict["x_axis"])
-    y_axis = create_xyz(transform_dict["y_axis"])
-    z_axis = create_xyz(transform_dict["z_axis"])
-    # Create new coord (orig, Norm, x-axis)
-    axis3 = gp_Ax3(gp_Pnt(origin), gp_Dir(z_axis), gp_Dir(x_axis)) 
-    return axis3
-
-
-def get_transform(transform_dict):
-    axis3 = get_ax3(transform_dict)
-    transform_to_local = gp_Trsf()
-    transform_to_local.SetTransformation(axis3) 
-    return transform_to_local.Inverted()
-
-
-def create_sketch_plane(transform_dict):
-    axis3 = get_ax3(transform_dict)
-    return gp_Pln(axis3)
-
-
-def create_point(point_dict, transform):
-    pt2d = gp_Pnt(
-        point_dict["x"],
-        point_dict["y"],
-        point_dict["z"]
-    )
-    return pt2d.Transformed(transform)
-
-
-def create_vector(vec_dict, transform):
-    vec2d = gp_Vec(
-        vec_dict["x"],
-        vec_dict["y"],
-        vec_dict["z"]
-    )
-    return vec2d.Transformed(transform)
-
-
-def create_unit_vec(vec_dict, transform):
-    vec2d = gp_Dir(
-        vec_dict["x"],
-        vec_dict["y"],
-        vec_dict["z"]
-    )
-    return vec2d.Transformed(transform)
 
 
 def write_obj(file, curve_strings, curve_count, vertex_strings, vertex_count, extrude_info, refP_info):
@@ -942,28 +839,3 @@ class CADparser:
             vertex_string = f"v {pt[0]} {pt[1]}\n"
             vertex_strings += vertex_string
         return vertex_strings
-
-
-def get_constant_schedule_with_warmup(optimizer, num_warmup_steps, last_epoch = -1):
-    """
-    Create a schedule with a constant learning rate preceded by a warmup period during which the learning rate
-    increases linearly between 0 and the initial lr set in the optimizer.
-
-    Args:
-        optimizer (:class:`~torch.optim.Optimizer`):
-            The optimizer for which to schedule the learning rate.
-        num_warmup_steps (:obj:`int`):
-            The number of steps for the warmup phase.
-        last_epoch (:obj:`int`, `optional`, defaults to -1):
-            The index of the last epoch when resuming training.
-
-    Return:
-        :obj:`torch.optim.lr_scheduler.LambdaLR` with the appropriate schedule.
-    """
-
-    def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1.0, num_warmup_steps))
-        return 1.0
-
-    return LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
