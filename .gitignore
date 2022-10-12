@@ -1,3 +1,6 @@
 data/*
 proj_log/*
 
+.vscode/
+**/__pycache__/
+data
