@@ -178,7 +178,8 @@ class CondARModel(nn.Module):
    
     # Discrete vertex value embeddings
     self.code_embed = Embedder(classes, self.embed_dim)
-    self.cond_embed = Embedder(classes, self.embed_dim)
+    #self.cond_embed = Embedder(classes, self.embed_dim)
+    self.pos_embed_cond = PositionalEncoding(max_len=64, d_model=self.embed_dim)
   
     # Transformer decoder
     decoder_layers = TransformerDecoderLayerImproved(d_model=self.embed_dim, 
@@ -187,6 +188,7 @@ class CondARModel(nn.Module):
     decoder_norm = LayerNorm(self.embed_dim)
     self.decoder = TransformerDecoder(decoder_layers, config['num_layers'], decoder_norm)
     self.fc = nn.Linear(self.embed_dim, classes)
+    self.encoder = VoxelEncoder(config['embed_dim'])
     
 
   def forward(self, code, cond):
@@ -210,10 +212,14 @@ class CondARModel(nn.Module):
       decoder_inputs = self.pos_embed(context_embedding.transpose(0,1))   # [1, bs, dim]
 
     # Cond input embedding 
-    cond_input = self.cond_embed(cond.flatten()).view(bs, cond.shape[1], self.embed_dim) # [bs, seqlen, dim]
-      
+    #cond_input = self.cond_embed(cond.flatten()).view(bs, cond.shape[1], self.embed_dim) # [bs, seqlen, dim]
+    cond_encoded = self.encoder(cond) #[bs, res, res, res, dim]
+    cond_encoded = cond_encoded.view(bs, -1, self.embed_dim)
+    cond_input = self.pos_embed_cond(cond_encoded.transpose(0, 1))
+
+
     # Pass through AR decoder
-    memory = cond_input.transpose(0,1)
+    memory = cond_input#.transpose(0,1)
     nopeak_mask = torch.nn.Transformer.generate_square_subsequent_mask(decoder_inputs.shape[0]).cuda()  # masked with -inf
     decoder_outputs = self.decoder(tgt=decoder_inputs, memory=memory, tgt_mask=nopeak_mask)
    
@@ -254,3 +260,39 @@ class CondARModel(nn.Module):
             v_seq = torch.cat([v_seq, next_seq], 1)
        
     return v_seq
+
+
+class VoxelEncoder(nn.Module):
+  def __init__(self, model_dim = 128):
+    super(VoxelEncoder, self).__init__()
+
+    self.conv_1 = nn.Conv3d(1, 32, 3, padding=1)  # out: 32
+    self.conv_1_1 = nn.Conv3d(32, 64, 3, padding=1)  # out: 32
+    self.conv_2 = nn.Conv3d(64, 128, 3, padding=1)  # out: 16
+    self.conv_2_1 = nn.Conv3d(128, 128, 3, padding=1)  # out: 16
+    self.conv_3 = nn.Conv3d(128, 128, 3, padding=1)  # out: 8
+    self.conv_3_1 = nn.Conv3d(128, model_dim, 3, padding=1)  # out: 8
+
+    self.actvn = nn.ReLU()
+
+    self.maxpool = nn.MaxPool3d(2)
+
+    self.conv1_1_bn = nn.BatchNorm3d(64)
+    self.conv2_1_bn = nn.BatchNorm3d(128)
+    self.conv3_1_bn = nn.BatchNorm3d(128)
+  
+  def forward(self, x):
+    net = self.actvn(self.conv_1(x))
+    net = self.actvn(self.conv_1_1(net))
+    net = self.conv1_1_bn(net)
+    net = self.maxpool(net)
+
+    net = self.actvn(self.conv_2(net))
+    net = self.actvn(self.conv_2_1(net))
+    net = self.conv2_1_bn(net)
+    net = self.maxpool(net)
+
+    net = self.actvn(self.conv_3(net))
+    net = self.actvn(self.conv_3_1(net))
+    net = self.conv3_1_bn(net) #8x8x8x128
+    return net
