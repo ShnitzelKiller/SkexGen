@@ -15,7 +15,7 @@ def train(args):
     device = torch.device("cuda:0")
     
     # Initialize dataset loader
-    dataset = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path) 
+    dataset = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=args.cache) 
     dataloader = torch.utils.data.DataLoader(dataset, 
                                              shuffle=True, 
                                              batch_size=args.batchsize,
@@ -97,7 +97,7 @@ def train(args):
         writer.flush()
 
         # save model after n epoch
-        if (epoch+1) % 500 == 0:
+        if (epoch+1) % args.save_interval == 0:
             torch.save(model.state_dict(), os.path.join(args.output,f'{model_name}_epoch_'+str(epoch+1)+'.pt'))
 
     writer.close()
@@ -115,6 +115,8 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_path", type=str)
     parser.add_argument("--names_path", type=str)
     parser.add_argument("--res", type=int, default=32)
+    parser.add_argument("--no_cache", action='store_false', dest='cache')
+    parser.add_argument("--save_interval", type=int, default=10)
 
     args = parser.parse_args()
 

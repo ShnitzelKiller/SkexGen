@@ -3,6 +3,7 @@ import numpy as np
 import pickle 
 import random
 import os
+import h5py
 
 SKETCH_R = 1
 RADIUS_R = 1
@@ -137,10 +138,12 @@ class SketchData(torch.utils.data.Dataset):
 
 class CodeDataset(torch.utils.data.Dataset):
     """ Code dataset """
-    def __init__(self, datapath, maxlen, voxel_path=None, names_path=None, res=32):
+    def __init__(self, datapath, maxlen, voxel_path=None, names_path=None, res=32, cache=True):
         self.maxlen = maxlen
         self.res = res
         self.use_voxels = voxel_path is not None
+        self.cache = cache
+        self.datapath = datapath
         with open(datapath, 'rb') as f:
             self.data = pickle.load(f)
         print(len(self.data))
@@ -151,8 +154,26 @@ class CodeDataset(torch.utils.data.Dataset):
             self.voxel_names = {s.split('_')[0] : os.path.join(voxel_path, s) for s in os.listdir(voxel_path) if s.endswith('npy')}
             records = [rec for rec in zip(self.names, self.data) if rec[0].split('/')[1] in self.voxel_names]
             self.names, self.data = zip(*records)
+            if cache:
+                self.preprocess()
 
-            
+
+
+    def preprocess(self):
+        datapath = os.path.split(self.datapath)[0]
+        fname = os.path.join(datapath, 'vox_cache.hdf5')
+        if not os.path.exists(fname):
+            with h5py.File(fname, 'w') as f:
+                dset = f.create_dataset('voxels', (len(self.names), np.load(self.voxel_names[next(iter(self.voxel_names.keys()))]).shape[0]), dtype='uint8')
+                for i,key in enumerate(self.names):
+                    if i % 100 == 0:
+                        print(f'caching {i}/{len(self.names)}')
+                    dset[i,:] = np.load(self.voxel_names[key.split('/')[1]])
+
+        with h5py.File(fname,'r') as f:
+            print('loading cached')
+            self.voxels = np.array(f['voxels'])
+
 
     def __len__(self):
         return len(self.data)
@@ -160,10 +181,13 @@ class CodeDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         code = self.data[index]
         if self.use_voxels:
-            name = self.names[index]
-            voxel_path = self.voxel_names[name.split('/')[1]]
-            occupancies = np.load(voxel_path)
-            occupancies = np.unpackbits(occupancies)
+            if self.cache:
+                occupancies = np.unpackbits(self.voxels[index,:])
+            else:
+                name = self.names[index].split('/')[1]
+                voxel_path = self.voxel_names[name]
+                occupancies = np.load(voxel_path)
+                occupancies = np.unpackbits(occupancies)
             input = np.reshape(occupancies, (self.res,)*3)
             return {'code': code, 'voxels': np.expand_dims(np.array(input, dtype=np.float32), axis=0)}
         else:
@@ -330,3 +354,22 @@ class ExtData(torch.utils.data.Dataset):
         ext_seq, flag_seq, ext_mask = self.prepare_batch_extrude(exts, ext_flags)
         
         return ext_seq, flag_seq, ext_mask
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", type=str, required=True)
+    parser.add_argument("--output", type=str, required=True)
+    parser.add_argument("--batchsize", type=int, required=True)
+    parser.add_argument("--device", type=str, required=True)
+    parser.add_argument("--seqlen", type=int, required=True)
+    parser.add_argument("--code", type=int, required=True)
+    parser.add_argument("--use_voxels", action='store_true')
+    parser.add_argument("--voxel_path", type=str)
+    parser.add_argument("--names_path", type=str)
+    parser.add_argument("--res", type=int, default=32)
+    parser.add_argument("--no_cache", action='store_false', dest='cache')
+    args = parser.parse_args()
+    dataset_cached = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=True)
+    dataset = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=False)
+    #for i in range(len(dataset)):
