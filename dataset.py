@@ -149,6 +149,8 @@ class CodeDataset(torch.utils.data.Dataset):
                 self.names = pickle.load(f)
                 assert(len(self.names) == len(self.data))
             self.voxel_names = {s.split('_')[0] : os.path.join(voxel_path, s) for s in os.listdir(voxel_path) if s.endswith('npy')}
+            records = [rec for rec in zip(self.names, self.data) if rec[0].split('/')[1] in self.voxel_names]
+            self.names, self.data = zip(*records)
 
             
 
