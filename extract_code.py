@@ -91,8 +91,9 @@ def extract(args):
             total_z.append(codes)
             allnames.append(names)
 
-    code = np.unique(np.vstack(total_z), return_counts=False, axis=0)
     allnames = [name for l in allnames for name in l]
+    code, indices = np.unique(np.vstack(total_z), return_counts=False, axis=0, return_index=True)
+    allnames = [allnames[ind] for ind in indices]
     print('Saving...')
     with open(os.path.join(args.output, 'code.pkl'), "wb") as tf:
         pickle.dump(code, tf)

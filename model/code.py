@@ -179,7 +179,7 @@ class CondARModel(nn.Module):
     # Discrete vertex value embeddings
     self.code_embed = Embedder(classes, self.embed_dim)
     #self.cond_embed = Embedder(classes, self.embed_dim)
-    self.pos_embed_cond = PositionalEncoding(max_len=64, d_model=self.embed_dim)
+    self.pos_embed_cond = PositionalEncoding(max_len=512, d_model=self.embed_dim)
   
     # Transformer decoder
     decoder_layers = TransformerDecoderLayerImproved(d_model=self.embed_dim, 
@@ -279,7 +279,7 @@ class VoxelEncoder(nn.Module):
 
     self.conv1_1_bn = nn.BatchNorm3d(64)
     self.conv2_1_bn = nn.BatchNorm3d(128)
-    self.conv3_1_bn = nn.BatchNorm3d(128)
+    self.conv3_1_bn = nn.BatchNorm3d(model_dim)
   
   def forward(self, x):
     net = self.actvn(self.conv_1(x))

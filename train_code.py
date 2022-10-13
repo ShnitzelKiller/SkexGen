@@ -65,7 +65,7 @@ def train(args):
             if args.use_voxels:
                 code = batch['code']
                 voxels = batch['voxels']
-                voxels.to(device)
+                voxels = voxels.to(device)
                 
             else:
                 code = batch
@@ -74,7 +74,7 @@ def train(args):
             # Pass through vertex prediction module 
             arglist = [code[:,:-1]]
             if args.use_voxels:
-                args.append(voxels)
+                arglist.append(voxels)
             logits = model(*arglist)
 
             c_pred = logits.reshape(-1, logits.shape[-1]) 

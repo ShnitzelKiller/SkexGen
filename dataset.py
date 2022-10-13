@@ -156,15 +156,15 @@ class CodeDataset(torch.utils.data.Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
+        code = self.data[index]
         if self.use_voxels:
             name = self.names[index]
-            voxel_path = self.voxel_names[name]
+            voxel_path = self.voxel_names[name.split('/')[1]]
             occupancies = np.load(voxel_path)
             occupancies = np.unpackbits(occupancies)
             input = np.reshape(occupancies, (self.res,)*3)
-            return {'code': code, 'voxels': np.array(input, dtype=np.float32)}
+            return {'code': code, 'voxels': np.expand_dims(np.array(input, dtype=np.float32), axis=0)}
         else:
-            code = self.data[index]
             return code
 
 
