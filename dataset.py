@@ -138,12 +138,14 @@ class SketchData(torch.utils.data.Dataset):
 
 class CodeDataset(torch.utils.data.Dataset):
     """ Code dataset """
-    def __init__(self, datapath, maxlen, voxel_path=None, names_path=None, res=32, cache=True):
-        self.maxlen = maxlen
+    def __init__(self, datapath, voxel_path=None, names_path=None, res=32, cache=True, splits_file=None, mode='train'):
         self.res = res
         self.use_voxels = voxel_path is not None
         self.cache = cache
         self.datapath = datapath
+        if splits_file is not None:
+            with open(splits_file,'rb') as f:
+                indices = pickle.load(f)[mode]
         with open(datapath, 'rb') as f:
             self.data = pickle.load(f)
         print(len(self.data))
@@ -151,6 +153,9 @@ class CodeDataset(torch.utils.data.Dataset):
             with open(names_path,'rb') as f:
                 self.names = pickle.load(f)
                 assert(len(self.names) == len(self.data))
+            if splits_file is not None:
+                self.names = [self.names[j] for j in indices]
+                self.data = self.data[indices]
             self.voxel_names = {s.split('_')[0] : os.path.join(voxel_path, s) for s in os.listdir(voxel_path) if s.endswith('npy')}
             records = [rec for rec in zip(self.names, self.data) if rec[0].split('/')[1] in self.voxel_names]
             self.names, self.data = zip(*records)
@@ -181,15 +186,15 @@ class CodeDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         code = self.data[index]
         if self.use_voxels:
+            name = self.names[index].split('/')[1]
             if self.cache:
                 occupancies = np.unpackbits(self.voxels[index,:])
             else:
-                name = self.names[index].split('/')[1]
                 voxel_path = self.voxel_names[name]
                 occupancies = np.load(voxel_path)
                 occupancies = np.unpackbits(occupancies)
             input = np.reshape(occupancies, (self.res,)*3)
-            return {'code': code, 'voxels': np.expand_dims(np.array(input, dtype=np.float32), axis=0)}
+            return {'code': code, 'voxels': np.expand_dims(np.array(input, dtype=np.float32), axis=0), 'name': name}
         else:
             return code
 
@@ -362,7 +367,6 @@ if __name__ == '__main__':
     parser.add_argument("--output", type=str, required=True)
     parser.add_argument("--batchsize", type=int, required=True)
     parser.add_argument("--device", type=str, required=True)
-    parser.add_argument("--seqlen", type=int, required=True)
     parser.add_argument("--code", type=int, required=True)
     parser.add_argument("--use_voxels", action='store_true')
     parser.add_argument("--voxel_path", type=str)
@@ -370,6 +374,6 @@ if __name__ == '__main__':
     parser.add_argument("--res", type=int, default=32)
     parser.add_argument("--no_cache", action='store_false', dest='cache')
     args = parser.parse_args()
-    dataset_cached = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=True)
-    dataset = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=False)
+    dataset_cached = CodeDataset(datapath=args.input, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=True)
+    dataset = CodeDataset(datapath=args.input, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=False)
     #for i in range(len(dataset)):

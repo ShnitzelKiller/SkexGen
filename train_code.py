@@ -15,7 +15,7 @@ def train(args):
     device = torch.device("cuda:0")
     
     # Initialize dataset loader
-    dataset = CodeDataset(datapath=args.input, maxlen=args.seqlen, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=args.cache) 
+    dataset = CodeDataset(datapath=args.input, names_path=args.names_path, res=args.res, voxel_path=args.voxel_path, cache=args.cache, splits_file=args.splits_file, mode='train') 
     dataloader = torch.utils.data.DataLoader(dataset, 
                                              shuffle=True, 
                                              batch_size=args.batchsize,
@@ -117,6 +117,7 @@ if __name__ == "__main__":
     parser.add_argument("--res", type=int, default=32)
     parser.add_argument("--no_cache", action='store_false', dest='cache')
     parser.add_argument("--save_interval", type=int, default=10)
+    parser.add_argument("--splits_file", type=str, default=None)
 
     args = parser.parse_args()
 
