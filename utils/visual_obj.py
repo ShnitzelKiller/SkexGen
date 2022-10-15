@@ -1,10 +1,13 @@
 import os 
 import argparse
 from pathlib import Path
+from sqlite3 import Time
 from tqdm import tqdm
 from functools import partial
 from multiprocessing import Pool
-from glob import glob 
+from glob import glob
+
+from urllib3 import Timeout 
 from converter import OBJReconverter
 from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from geometry.obj_parser import OBJParser
@@ -15,20 +18,19 @@ import signal
 from contextlib import contextmanager
 @contextmanager
 def timeout(time):
+    def raise_timeout(signum, frame):
+        raise TimeoutError(f'block timeout after {time} seconds')
     # Register a function to raise a TimeoutError on the signal.
     signal.signal(signal.SIGALRM, raise_timeout)
     # Schedule the signal to be sent after ``time``.
     signal.alarm(time)
     try:
         yield
-    except TimeoutError:
-        raise Exception("time out")
     finally:
         # Unregister the signal so it won't be triggered
         # if the timeout is not reached.
-        signal.signal(signal.SIGALRM, signal.SIG_IGN)
-def raise_timeout(signum, frame):
-    raise TimeoutError
+        signal.alarm(0)
+
     
 NUM_TRHEADS = 36 
 
@@ -75,6 +77,9 @@ def run_parallel(project_folder, write_step=True):
         except Exception as ex:
             msg = [project_folder, str(ex)[:100]]
             return None 
+        except TimeoutError as ex:
+            print(str(ex))
+            return None
  
     try:
       with timeout(30):
@@ -82,9 +87,10 @@ def run_parallel(project_folder, write_step=True):
         output_path =  os.path.join(output_folder, stl_name)
         write_stl_file(cur_solid, output_path, linear_deflection=0.001, angular_deflection=0.5)
 
-        step_name = Path(output_folder).stem + '_'+ str(extrude_idx).zfill(3) + "_final.step"
-        output_path =  os.path.join(output_folder, step_name)
-        write_step_file(cur_solid, output_path)
+        if write_step:
+            step_name = Path(output_folder).stem + '_'+ str(extrude_idx).zfill(3) + "_final.step"
+            output_path =  os.path.join(output_folder, step_name)
+            write_step_file(cur_solid, output_path)
 
     except Exception as ex:
         msg = [project_folder, str(ex)[:500]]
@@ -107,6 +113,11 @@ if __name__ == "__main__":
     else:
         cad_folders = sorted(glob(args.data_folder+'/*/'))
 
+    # for folder in cad_folders:
+    #     print(folder)
+    #     run_parallel(folder, write_step=args.write_step)
+
     convert_iter = Pool(NUM_TRHEADS).imap(partial(run_parallel, write_step=args.write_step), cad_folders) 
     for solid in tqdm(convert_iter, total=len(cad_folders)):
-        pass
+       pass
+

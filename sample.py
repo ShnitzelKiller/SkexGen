@@ -13,7 +13,7 @@ sys.path.insert(0, 'utils')
 from utils import CADparser, write_obj_sample
 
 NUM_TRHEADS = 36 
-NUM_SAMPLE = 20000
+NUM_SAMPLE = 5000
 
 def sample(args):
     # Initialize gpu device
@@ -136,6 +136,8 @@ def sample(args):
     
     if args.voxel_path is not None:
         for batch in dataloader:
+            if len(cad) >= NUM_SAMPLE:
+                break
             voxels = batch['voxels'].to(device)
             name = batch['name']
             sample_merges, name = compute_sample(cmd_encoder, param_encoder, sketch_decoder, ext_encoder, ext_decoder, code_model, cmd_codebook, param_codebook, ext_codebook, conditioning=voxels, names=name)
