@@ -27,14 +27,14 @@ def train(args):
             'embed_dim': 256, 
             'num_layers': 8,
             'num_heads': 8,
-            'dropout_rate': 0.1
+            'dropout_rate': args.dropout
         },
         encoder_config={
             'hidden_dim': 256,
             'embed_dim': 256, 
             'num_layers': 8,
             'num_heads': 8,
-            'dropout_rate': 0.1
+            'dropout_rate': args.dropout
         },
         max_len=args.seqlen,
         classes=args.code,)
@@ -46,7 +46,7 @@ def train(args):
                 'embed_dim': 256, 
                 'num_layers': 8,
                 'num_heads': 8,
-                'dropout_rate': 0.1
+                'dropout_rate': args.dropout
             },
             max_len=args.seqlen,
             classes=args.code,
@@ -125,6 +125,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_cache", action='store_false', dest='cache')
     parser.add_argument("--save_interval", type=int, default=10)
     parser.add_argument("--splits_file", type=str, default=None)
+    parser.add_argument("--dropout", type=float, default=0.1)
 
     args = parser.parse_args()
 
