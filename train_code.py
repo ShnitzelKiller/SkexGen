@@ -29,6 +29,13 @@ def train(args):
             'num_heads': 8,
             'dropout_rate': 0.1
         },
+        encoder_config={
+            'hidden_dim': 256,
+            'embed_dim': 256, 
+            'num_layers': 8,
+            'num_heads': 8,
+            'dropout_rate': 0.1
+        },
         max_len=args.seqlen,
         classes=args.code,)
         model_name = 'code_voxel'

@@ -131,10 +131,8 @@ class CodeModel(nn.Module):
     temperature = 1.0
     top_k = 0
     top_p = SAMPLE_PROB
-
-    for k in range(self.max_len):
-        if k == 0:
-          v_seq = [None] * n_samples
+    v_seq = [None] * n_samples
+    for k in range(self.max_len):          
          
         # pass through decoder
         with torch.no_grad():
@@ -164,6 +162,7 @@ class CondARModel(nn.Module):
 
   def __init__(self,
                config,
+               encoder_config,
                max_len=8,
                classes = 512,
                name='ar_model'):
@@ -188,7 +187,7 @@ class CondARModel(nn.Module):
     decoder_norm = LayerNorm(self.embed_dim)
     self.decoder = TransformerDecoder(decoder_layers, config['num_layers'], decoder_norm)
     self.fc = nn.Linear(self.embed_dim, classes)
-    self.encoder = VoxelEncoder(config['embed_dim'])
+    self.encoder = VoxelEncoder(config['embed_dim'], encoder_config['hidden_dim'], encoder_config['num_heads'], config['dropout_rate'], encoder_config['num_layers'])
     
 
   def forward(self, code, cond):
@@ -214,12 +213,9 @@ class CondARModel(nn.Module):
     # Cond input embedding 
     #cond_input = self.cond_embed(cond.flatten()).view(bs, cond.shape[1], self.embed_dim) # [bs, seqlen, dim]
     cond_encoded = self.encoder(cond) #[bs, res, res, res, dim]
-    cond_encoded = cond_encoded.view(bs, -1, self.embed_dim)
-    cond_input = self.pos_embed_cond(cond_encoded.transpose(0, 1))
-
 
     # Pass through AR decoder
-    memory = cond_input#.transpose(0,1)
+    memory = cond_encoded#.transpose(0,1)
     nopeak_mask = torch.nn.Transformer.generate_square_subsequent_mask(decoder_inputs.shape[0]).cuda()  # masked with -inf
     decoder_outputs = self.decoder(tgt=decoder_inputs, memory=memory, tgt_mask=nopeak_mask)
    
@@ -235,10 +231,8 @@ class CondARModel(nn.Module):
     temperature = 1.0
     top_k = 0
     top_p = SAMPLE_PROB
-
-    for k in range(self.max_len):
-        if k == 0:
-          v_seq = [None] * n_samples
+    v_seq = [None] * n_samples
+    for k in range(self.max_len):          
          
         # pass through decoder
         with torch.no_grad():
@@ -263,15 +257,20 @@ class CondARModel(nn.Module):
 
 
 class VoxelEncoder(nn.Module):
-  def __init__(self, model_dim = 128):
+  def __init__(self, model_dim = 128, hidden_dim=512, num_heads=8, dropout_rate=0.0, num_transformer_layers=4):
     super(VoxelEncoder, self).__init__()
+    self.embed_dim = model_dim
+    self.hidden_dim = hidden_dim
+    self.num_heads = num_heads
+    self.dropout = dropout_rate
+    self.num_layers = num_transformer_layers
 
     self.conv_1 = nn.Conv3d(1, 32, 3, padding=1)  # out: 32
     self.conv_1_1 = nn.Conv3d(32, 64, 3, padding=1)  # out: 32
     self.conv_2 = nn.Conv3d(64, 128, 3, padding=1)  # out: 16
     self.conv_2_1 = nn.Conv3d(128, 128, 3, padding=1)  # out: 16
     self.conv_3 = nn.Conv3d(128, 128, 3, padding=1)  # out: 8
-    self.conv_3_1 = nn.Conv3d(128, model_dim, 3, padding=1)  # out: 8
+    self.conv_3_1 = nn.Conv3d(128, self.embed_dim, 3, padding=1)  # out: 8
 
     self.actvn = nn.ReLU()
 
@@ -280,6 +279,13 @@ class VoxelEncoder(nn.Module):
     self.conv1_1_bn = nn.BatchNorm3d(64)
     self.conv2_1_bn = nn.BatchNorm3d(128)
     self.conv3_1_bn = nn.BatchNorm3d(model_dim)
+
+    self.pos_embed = PositionalEncoding(d_model=self.embed_dim, max_len=8**3)
+
+    encoder_layers = TransformerEncoderLayerImproved(d_model=self.embed_dim, nhead=self.num_heads, 
+                                             dim_feedforward=self.hidden_dim, dropout=self.dropout)
+    encoder_norm = LayerNorm(self.embed_dim)
+    self.encoder = TransformerEncoder(encoder_layers, self.num_layers, encoder_norm)
   
   def forward(self, x):
     net = self.actvn(self.conv_1(x))
@@ -294,5 +300,11 @@ class VoxelEncoder(nn.Module):
 
     net = self.actvn(self.conv_3(net))
     net = self.actvn(self.conv_3_1(net))
-    net = self.conv3_1_bn(net) #8x8x8x128
-    return net
+    net = self.conv3_1_bn(net) #embed_dimx8x8x8
+
+    encoder_embed = net.view(net.shape[0], net.shape[1], -1)
+    encoder_embed = torch.permute(encoder_embed, (2, 0, 1))
+    encoder_input = self.pos_embed(encoder_embed)
+    outputs = self.encoder(src=encoder_input)
+
+    return outputs
