@@ -143,6 +143,8 @@ class CodeDataset(torch.utils.data.Dataset):
         self.use_voxels = voxel_path is not None
         self.cache = cache
         self.datapath = datapath
+        self.mode = mode
+        self.splits_name = os.path.split(splits_file)[1].split('.')[0]
         if splits_file is not None:
             with open(splits_file,'rb') as f:
                 indices = pickle.load(f)[mode]
@@ -166,7 +168,7 @@ class CodeDataset(torch.utils.data.Dataset):
 
     def preprocess(self):
         datapath = os.path.split(self.datapath)[0]
-        fname = os.path.join(datapath, 'vox_cache.hdf5')
+        fname = os.path.join(datapath, f'vox_cache_{self.splits_name}_{self.mode}.hdf5')
         if not os.path.exists(fname):
             with h5py.File(fname, 'w') as f:
                 dset = f.create_dataset('voxels', (len(self.names), np.load(self.voxel_names[next(iter(self.voxel_names.keys()))]).shape[0]), dtype='uint8')
