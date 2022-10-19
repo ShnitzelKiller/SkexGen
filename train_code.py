@@ -37,7 +37,8 @@ def train(args):
             'dropout_rate': args.dropout
         },
         max_len=args.seqlen,
-        classes=args.code,)
+        classes=args.code,
+        use_transformer_encoder=args.encoder)
         model_name = 'code_voxel'
     else:
         model = CodeModel(
@@ -126,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_interval", type=int, default=10)
     parser.add_argument("--splits_file", type=str, default=None)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--no_encoder", action='store_false', dest='encoder')
 
     args = parser.parse_args()
 
