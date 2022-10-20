@@ -229,7 +229,7 @@ class CondARModel(nn.Module):
     return logits.transpose(0,1)
 
 
-  def sample(self, n_samples, cond_code):
+  def sample(self, n_samples, cond_code, deterministic=False):
     """
     sample from distribution (top-k, top-p)
     """
@@ -245,14 +245,16 @@ class CondARModel(nn.Module):
           logits = logits[:, -1, :] / temperature
         
         # Top-p sampling 
-        next_vs = []
-        for logit in logits:   
-            filtered_logits = top_k_top_p_filtering(logit.clone(), top_k=top_k, top_p=top_p)
-            next_v = torch.multinomial(F.softmax(filtered_logits, dim=-1), 1)
-            next_vs.append(next_v.item())
-
-        # Add next tokens
-        next_seq = torch.LongTensor(next_vs).view(len(next_vs), 1).cuda()
+        if deterministic:
+          next_seq = torch.argmax(logits, 1).unsqueeze(1)
+        else:
+          next_vs = []
+          for logit in logits:   
+              filtered_logits = top_k_top_p_filtering(logit.clone(), top_k=top_k, top_p=top_p)
+              next_v = torch.multinomial(F.softmax(filtered_logits, dim=-1), 1)
+              next_vs.append(next_v.item())
+          # Add next tokens
+          next_seq = torch.LongTensor(next_vs).view(len(next_vs), 1).cuda()
         if v_seq[0] is None:
             v_seq = next_seq
         else:

@@ -180,6 +180,7 @@ class CodeDataset(torch.utils.data.Dataset):
         with h5py.File(fname,'r') as f:
             print('loading cached')
             self.voxels = np.array(f['voxels'])
+            assert(self.voxels.shape[0] == len(self.data))
 
 
     def __len__(self):

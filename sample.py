@@ -107,7 +107,15 @@ def sample(args):
             'dropout_rate': 0.1
         },
         max_len=10,
-        classes=1000,)
+        classes=1000,
+        encoder_config={
+            'hidden_dim': 256,
+            'embed_dim': 256, 
+            'num_layers': 8,
+            'num_heads': 8,
+            'dropout_rate': 0.1
+        },
+        use_transformer_encoder=args.encoder)
     else:
         code_model = CodeModel(
             config={
@@ -175,7 +183,7 @@ def compute_sample(cmd_encoder, param_encoder, sketch_decoder, ext_encoder, ext_
         if conditioning is None:
             codes = code_model.sample(n_samples=args.batchsize)
         else:
-            codes = code_model.sample(n_samples=args.batchsize, cond_code=conditioning)
+            codes = code_model.sample(n_samples=args.batchsize, cond_code=conditioning, deterministic=args.deterministic)
         cmd_code = codes[:,:4] 
         param_code = codes[:,4:6] 
         ext_code = codes[:,6:] 
@@ -185,7 +193,7 @@ def compute_sample(cmd_encoder, param_encoder, sketch_decoder, ext_encoder, ext_
         ext_codes = []
         names_final = []
         records = zip(cmd_code, param_code, ext_code) if names is None else zip(cmd_code, param_code, ext_code, names)
-        for record in zip(cmd_code, param_code, ext_code, names):
+        for record in records:
             if names is None:
                 cmd, param, ext = record
             else:
@@ -245,6 +253,9 @@ if __name__ == "__main__":
     parser.add_argument("--splits_file", type=str, default=None)
     parser.add_argument("--mode", type=str, default='test')
     parser.add_argument("--batchsize", type=int, default=1024)
+    parser.add_argument("--no_encoder", action='store_false', dest='encoder')
+    parser.add_argument("--deterministic", action='store_true')
+
     args = parser.parse_args()
     
     sample(args)
