@@ -104,10 +104,10 @@ def sample(args):
             'embed_dim': 256, 
             'num_layers': 8,
             'num_heads': 8,
-            'dropout_rate': 0.1
+            'dropout_rate': 0.1,
         },
         max_len=10,
-        classes=1000,
+        classes=128 if args.continuous_decode else 1000,
         encoder_config={
             'hidden_dim': 256,
             'embed_dim': 256, 
@@ -115,7 +115,10 @@ def sample(args):
             'num_heads': 8,
             'dropout_rate': 0.1
         },
-        use_transformer_encoder=args.encoder)
+        use_transformer_encoder=args.encoder,
+        use_transformer_decoder=args.transformer_decoder,
+        continuous_decode=args.continuous_decode,
+        )
     else:
         code_model = CodeModel(
             config={
@@ -184,36 +187,48 @@ def compute_sample(cmd_encoder, param_encoder, sketch_decoder, ext_encoder, ext_
             codes = code_model.sample(n_samples=args.batchsize)
         else:
             codes = code_model.sample(n_samples=args.batchsize, cond_code=conditioning, deterministic=args.deterministic)
-        cmd_code = codes[:,:4] 
-        param_code = codes[:,4:6] 
-        ext_code = codes[:,6:] 
+        
+        if args.continuous_decode:
+            latent_cmd = codes[:,:4,:]
+            latent_param = codes[:,4:6,:]
+            latent_ext = codes[:,6:,:]
 
-        cmd_codes = []
-        param_codes = []
-        ext_codes = []
-        names_final = []
-        records = zip(cmd_code, param_code, ext_code) if names is None else zip(cmd_code, param_code, ext_code, names)
-        for record in records:
-            if names is None:
-                cmd, param, ext = record
-            else:
-                cmd, param, ext, name = record
-            if torch.max(cmd) >= 500:
-                continue
-            else:
-                cmd_codes.append(cmd)
-                param_codes.append(param)
-                ext_codes.append(ext)
-                if names is not None:
-                    names_final.append(name)
-        cmd_codes = torch.vstack(cmd_codes)
-        param_codes = torch.vstack(param_codes)
-        ext_codes = torch.vstack(ext_codes)
+            latent_cmd = cmd_encoder.up(cmd_encoder.vq_vae(latent_cmd)[1])
+            latent_param = param_encoder.up(param_encoder.vq_vae(latent_param)[1])
+            latent_ext = ext_encoder.up(ext_encoder.vq_vae(latent_ext)[1])
+            latent_sketch = torch.cat((latent_cmd, latent_param), 1)
+        else:
+            cmd_code = codes[:,:4] 
+            param_code = codes[:,4:6] 
+            ext_code = codes[:,6:] 
 
-        latent_cmd = cmd_encoder.up(cmd_codebook(cmd_codes))
-        latent_param = param_encoder.up(param_codebook(param_codes))
-        latent_ext = ext_encoder.up(ext_codebook(ext_codes))
-        latent_sketch = torch.cat((latent_cmd, latent_param), 1)
+            cmd_codes = []
+            param_codes = []
+            ext_codes = []
+            names_final = []
+            records = zip(cmd_code, param_code, ext_code) if names is None else zip(cmd_code, param_code, ext_code, names)
+            #filter out invalid codes
+            for record in records:
+                if names is None:
+                    cmd, param, ext = record
+                else:
+                    cmd, param, ext, name = record
+                if torch.max(cmd) >= 500:
+                    continue
+                else:
+                    cmd_codes.append(cmd)
+                    param_codes.append(param)
+                    ext_codes.append(ext)
+                    if names is not None:
+                        names_final.append(name)
+            cmd_codes = torch.vstack(cmd_codes)
+            param_codes = torch.vstack(param_codes)
+            ext_codes = torch.vstack(ext_codes)
+
+            latent_cmd = cmd_encoder.up(cmd_codebook(cmd_codes))
+            latent_param = param_encoder.up(param_codebook(param_codes))
+            latent_ext = ext_encoder.up(ext_codebook(ext_codes))
+            latent_sketch = torch.cat((latent_cmd, latent_param), 1)
                 
         # Parallel Sample Sketches 
     sample_pixels, latent_ext_samples = sketch_decoder.sample(n_samples=latent_sketch.shape[0], \
@@ -255,6 +270,8 @@ if __name__ == "__main__":
     parser.add_argument("--batchsize", type=int, default=1024)
     parser.add_argument("--no_encoder", action='store_false', dest='encoder')
     parser.add_argument("--deterministic", action='store_true')
+    parser.add_argument("--continuous_decode", action='store_true')
+    parser.add_argument("--no_transformer_decoder", action='store_false', dest='transformer_decoder')
 
     args = parser.parse_args()
     

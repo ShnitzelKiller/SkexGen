@@ -256,28 +256,35 @@ class CondARModel(nn.Module):
     top_k = 0
     top_p = SAMPLE_PROB
     v_seq = [None] * n_samples
-    for k in range(self.max_len):          
-         
-        # pass through decoder
-        with torch.no_grad():
-          logits = self.forward(code=v_seq, cond=cond_code)
-          logits = logits[:, -1, :] / temperature
-        
-        # Top-p sampling 
-        if deterministic:
-          next_seq = torch.argmax(logits, 1).unsqueeze(1)
-        else:
-          next_vs = []
-          for logit in logits:   
-              filtered_logits = top_k_top_p_filtering(logit.clone(), top_k=top_k, top_p=top_p)
-              next_v = torch.multinomial(F.softmax(filtered_logits, dim=-1), 1)
-              next_vs.append(next_v.item())
-          # Add next tokens
-          next_seq = torch.LongTensor(next_vs).view(len(next_vs), 1).cuda()
-        if v_seq[0] is None:
-            v_seq = next_seq
-        else:
-            v_seq = torch.cat([v_seq, next_seq], 1)
+
+    if self.use_transformer_decoder:
+      for k in range(self.max_len):          
+          
+          # pass through decoder
+          with torch.no_grad():
+            logits = self.forward(code=v_seq, cond=cond_code)
+            logits = logits[:, -1, :] / temperature
+          
+          if self.continuous_decode:
+            next_seq = logits.unsqueeze(1)
+          else:
+            # Top-p sampling 
+            if deterministic:
+              next_seq = torch.argmax(logits, 1).unsqueeze(1)
+            else:
+              next_vs = []
+              for logit in logits:   
+                  filtered_logits = top_k_top_p_filtering(logit.clone(), top_k=top_k, top_p=top_p)
+                  next_v = torch.multinomial(F.softmax(filtered_logits, dim=-1), 1)
+                  next_vs.append(next_v.item())
+              # Add next tokens
+              next_seq = torch.LongTensor(next_vs).view(len(next_vs), 1).cuda()
+          if v_seq[0] is None:
+              v_seq = next_seq
+          else:
+              v_seq = torch.cat([v_seq, next_seq], 1)
+    else:
+      v_seq = self.forward(code=v_seq, cond=cond_code)
        
     return v_seq
 
@@ -308,7 +315,11 @@ class VoxelEncoder(nn.Module):
     self.conv2_1_bn = nn.BatchNorm3d(128)
     self.conv3_1_bn = nn.BatchNorm3d(model_dim)
 
-    self.pos_embed = PositionalEncoding(d_model=self.embed_dim, max_len=8**3+1)
+    #a hack to make old checkpoints not using the encoder load
+    max_len = 8**3
+    if use_transformer_encoder:
+      max_len+=1
+    self.pos_embed = PositionalEncoding(d_model=self.embed_dim, max_len=max_len)
 
     if use_transformer_encoder:
       encoder_layers = TransformerEncoderLayerImproved(d_model=self.embed_dim, nhead=self.num_heads, 
