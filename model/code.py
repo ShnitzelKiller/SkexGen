@@ -167,7 +167,8 @@ class CondARModel(nn.Module):
                classes = 512,
                name='ar_model',
                use_transformer_encoder=True,
-               continuous_decode=False):
+               continuous_decode=False,
+               use_transformer_decoder=True):
     super(CondARModel, self).__init__()
 
     self.embed_dim = config['embed_dim']
@@ -175,66 +176,75 @@ class CondARModel(nn.Module):
     self.dropout = config['dropout_rate']
     self.use_transformer_encoder = use_transformer_encoder
     self.continuous_decode = continuous_decode
-
-    # Position embeddings
-    self.pos_embed = PositionalEncoding(max_len=self.max_len, d_model=self.embed_dim)
-   
-    # Discrete vertex value embeddings
-    if not continuous_decode:
-      self.code_embed = Embedder(classes, self.embed_dim)
-    else:
-      self.code_embed = Linear(128, self.embed_dim)
-    #self.cond_embed = Embedder(classes, self.embed_dim)
-    self.pos_embed_cond = PositionalEncoding(max_len=512, d_model=self.embed_dim)
+    self.use_transformer_decoder = use_transformer_decoder
+    self.classes = classes
   
-    # Transformer decoder
-    decoder_layers = TransformerDecoderLayerImproved(d_model=self.embed_dim, 
-                        dim_feedforward= config['hidden_dim'],
-                        nhead=config['num_heads'], dropout=self.dropout)
-    decoder_norm = LayerNorm(self.embed_dim)
-    self.decoder = TransformerDecoder(decoder_layers, config['num_layers'], decoder_norm)
-    self.fc = nn.Linear(self.embed_dim, classes)
-    self.encoder = VoxelEncoder(config['embed_dim'], encoder_config['hidden_dim'], encoder_config['num_heads'], config['dropout_rate'], encoder_config['num_layers'], use_transformer_encoder=use_transformer_encoder)
+    if use_transformer_decoder:
+      # Position embeddings
+      self.pos_embed = PositionalEncoding(max_len=self.max_len, d_model=self.embed_dim)
+      # Discrete vertex value embeddings
+      if not continuous_decode:
+        self.code_embed = Embedder(classes, self.embed_dim)
+      else:
+        self.code_embed = Linear(128, self.embed_dim)
+      #self.cond_embed = Embedder(classes, self.embed_dim)
+      self.pos_embed_cond = PositionalEncoding(max_len=512, d_model=self.embed_dim)
+      # Transformer decoder
+      decoder_layers = TransformerDecoderLayerImproved(d_model=self.embed_dim, 
+                          dim_feedforward= config['hidden_dim'],
+                          nhead=config['num_heads'], dropout=self.dropout)
+      decoder_norm = LayerNorm(self.embed_dim)
+      self.decoder = TransformerDecoder(decoder_layers, config['num_layers'], decoder_norm)
+    
+    self.fc = nn.Linear(self.embed_dim, classes if use_transformer_decoder else classes * max_len)
+    self.encoder = VoxelEncoder(config['embed_dim'], encoder_config['hidden_dim'], encoder_config['num_heads'], config['dropout_rate'], encoder_config['num_layers'], use_transformer_encoder=use_transformer_encoder, use_context_embedding=not self.use_transformer_decoder)
     
 
   def forward(self, code, cond):
     """ forward pass """
-    if code[0] is None:
-      bs = len(code)
-      seq_len = 0
-    else:
-      bs, seq_len = code.shape[0], code.shape[1]
-
-    # Context embedding
-    context_embedding = torch.zeros((bs, 1, self.embed_dim)).cuda() # [bs, 1, dim]
-    
-    # Code seq embedding 
-    if seq_len > 0:
-      if not self.continuous_decode:
-        embeddings = self.code_embed(code.flatten()).view(bs, code.shape[1], self.embed_dim)  # [bs, seqlen, dim]
-      else:
-        embeddings = self.code_embed(code)
-      decoder_inputs = torch.cat([context_embedding, embeddings], axis=1) # [bs, seqlen+1, dim]
-      # Positional embedding
-      decoder_inputs = self.pos_embed(decoder_inputs.transpose(0,1))   # [seqlen+1, bs, dim]
-    else:
-      decoder_inputs = self.pos_embed(context_embedding.transpose(0,1))   # [1, bs, dim]
 
     # Cond input embedding 
     #cond_input = self.cond_embed(cond.flatten()).view(bs, cond.shape[1], self.embed_dim) # [bs, seqlen, dim]
     cond_encoded = self.encoder(cond) #[bs, res, res, res, dim]
-    if self.use_transformer_encoder:
-      memory = cond_encoded#.transpose(0,1)
+
+    if self.use_transformer_decoder:
+      if code[0] is None:
+        bs = len(code)
+        seq_len = 0
+      else:
+        bs, seq_len = code.shape[0], code.shape[1]
+
+      # Context embedding
+      context_embedding = torch.zeros((bs, 1, self.embed_dim)).cuda() # [bs, 1, dim]
+      
+      # Code seq embedding 
+      if seq_len > 0:
+        if not self.continuous_decode:
+          embeddings = self.code_embed(code.flatten()).view(bs, code.shape[1], self.embed_dim)  # [bs, seqlen, dim]
+        else:
+          embeddings = self.code_embed(code)
+        decoder_inputs = torch.cat([context_embedding, embeddings], axis=1) # [bs, seqlen+1, dim]
+        # Positional embedding
+        decoder_inputs = self.pos_embed(decoder_inputs.transpose(0,1))   # [seqlen+1, bs, dim]
+      else:
+        decoder_inputs = self.pos_embed(context_embedding.transpose(0,1))   # [1, bs, dim]
+
+      
+      if self.use_transformer_encoder:
+        memory = cond_encoded#.transpose(0,1)
+      else:
+        cond_encoded = cond_encoded.view(bs, -1, self.embed_dim)
+        memory = self.pos_embed_cond(cond_encoded.transpose(0, 1))
+      # Pass through AR decoder
+      nopeak_mask = torch.nn.Transformer.generate_square_subsequent_mask(decoder_inputs.shape[0]).cuda()  # masked with -inf
+      decoder_outputs = self.decoder(tgt=decoder_inputs, memory=memory, tgt_mask=nopeak_mask)
+    
+      # Get logits 
+      logits = self.fc(decoder_outputs)
+      return logits.transpose(0,1)
     else:
-      cond_encoded = cond_encoded.view(bs, -1, self.embed_dim)
-      memory = self.pos_embed_cond(cond_encoded.transpose(0, 1))
-    # Pass through AR decoder
-    nopeak_mask = torch.nn.Transformer.generate_square_subsequent_mask(decoder_inputs.shape[0]).cuda()  # masked with -inf
-    decoder_outputs = self.decoder(tgt=decoder_inputs, memory=memory, tgt_mask=nopeak_mask)
-   
-    # Get logits 
-    logits = self.fc(decoder_outputs)
-    return logits.transpose(0,1)
+      preds = self.fc(cond_encoded[0,:,:])
+      preds = preds.view(preds.shape[0], self.max_len, self.classes)
 
 
   def sample(self, n_samples, cond_code, deterministic=False):
@@ -272,7 +282,7 @@ class CondARModel(nn.Module):
 
 
 class VoxelEncoder(nn.Module):
-  def __init__(self, model_dim = 128, hidden_dim=512, num_heads=8, dropout_rate=0.0, num_transformer_layers=4, use_transformer_encoder=True):
+  def __init__(self, model_dim = 128, hidden_dim=512, num_heads=8, dropout_rate=0.0, num_transformer_layers=4, use_transformer_encoder=True, use_context_embedding=False):
     super(VoxelEncoder, self).__init__()
     self.embed_dim = model_dim
     self.hidden_dim = hidden_dim
@@ -280,6 +290,7 @@ class VoxelEncoder(nn.Module):
     self.dropout = dropout_rate
     self.num_layers = num_transformer_layers
     self.use_transformer_encoder = use_transformer_encoder
+    self.use_context_embedding=use_context_embedding
 
     self.conv_1 = nn.Conv3d(1, 32, 3, padding=1)  # out: 32
     self.conv_1_1 = nn.Conv3d(32, 64, 3, padding=1)  # out: 32
@@ -296,7 +307,7 @@ class VoxelEncoder(nn.Module):
     self.conv2_1_bn = nn.BatchNorm3d(128)
     self.conv3_1_bn = nn.BatchNorm3d(model_dim)
 
-    self.pos_embed = PositionalEncoding(d_model=self.embed_dim, max_len=8**3)
+    self.pos_embed = PositionalEncoding(d_model=self.embed_dim, max_len=8**3+1)
 
     if use_transformer_encoder:
       encoder_layers = TransformerEncoderLayerImproved(d_model=self.embed_dim, nhead=self.num_heads, 
@@ -320,8 +331,13 @@ class VoxelEncoder(nn.Module):
     net = self.conv3_1_bn(net) #embed_dimx8x8x8
 
     if self.use_transformer_encoder:
+        
+
       encoder_embed = net.view(net.shape[0], net.shape[1], -1)
-      encoder_embed = torch.permute(encoder_embed, (2, 0, 1))
+      encoder_embed = torch.permute(encoder_embed, (2, 0, 1)) # [seqlen, bs, dim]
+      if self.use_context_embedding:
+        context_embedding = torch.zeros((1, net.shape[0], self.embed_dim)).cuda()
+        encoder_embed = torch.cat([context_embedding, encoder_embed], dim=0)
       encoder_input = self.pos_embed(encoder_embed)
       outputs = self.encoder(src=encoder_input)
 

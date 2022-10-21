@@ -39,7 +39,10 @@ def train(args):
         },
         max_len=args.seqlen,
         classes=128 if args.continuous_decode else args.code,
-        use_transformer_encoder=args.encoder, continuous_decode=args.continuous_decode)
+        use_transformer_encoder=args.encoder,
+        continuous_decode=args.continuous_decode,
+        use_transformer_decoder=args.transformer_decoder
+        )
         model_name = 'code_voxel'
     else:
         model = CodeModel(
@@ -197,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--no_encoder", action='store_false', dest='encoder')
     parser.add_argument("--continuous_decode", action='store_true')
+    parser.add_argument("--no_transformer_decoder", action='store_false', dest='transformer_decoder')
     parser.add_argument("--sketch_weight", type=str)
     parser.add_argument("--ext_weight", type=str)
     parser.add_argument("--bit", type=int, default=6)
