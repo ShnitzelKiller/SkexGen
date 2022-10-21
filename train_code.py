@@ -2,6 +2,7 @@ import os
 import torch
 import argparse
 from model.code import CodeModel, CondARModel
+from model.encoder import CMDEncoder, EXTEncoder, PARAMEncoder
 from dataset import CodeDataset
 import torch.nn as nn
 import torch.nn.functional as F 
@@ -37,7 +38,7 @@ def train(args):
             'dropout_rate': args.dropout
         },
         max_len=args.seqlen,
-        classes=args.code,
+        classes=128 if args.continuous_decode else args.code,
         use_transformer_encoder=args.encoder)
         model_name = 'code_voxel'
     else:
@@ -54,6 +55,58 @@ def train(args):
         )
         model_name = 'code'
     model = model.to(device).train()
+
+    if args.continuous_decode:
+        cmd_encoder = CMDEncoder(
+        config={
+            'hidden_dim': 512,
+            'embed_dim': 256,
+            'num_layers': 4,
+            'num_heads': 8,
+            'dropout_rate': 0.1
+        },
+        max_len=200,
+        code_len = 4,
+        num_code = 500,
+        )
+        cmd_encoder.load_state_dict(torch.load(os.path.join(args.sketch_weight, 'cmdenc_epoch_300.pt')))
+        cmd_encoder = cmd_encoder.to(device)
+
+        param_encoder = PARAMEncoder(
+            config={
+                'hidden_dim': 512,
+                'embed_dim': 256,
+                'num_layers': 4,
+                'num_heads': 8,
+                'dropout_rate': 0.1
+            },
+            quantization_bits=args.bit,
+            max_len=200,
+            code_len = 2,
+            num_code = 1000,
+        )
+        param_encoder.load_state_dict(torch.load(os.path.join(args.sketch_weight, 'paramenc_epoch_300.pt')))
+        param_encoder = param_encoder.to(device)
+        
+        ext_encoder = EXTEncoder(
+            config={
+                'hidden_dim': 512,
+                'embed_dim': 256,
+                'num_layers': 4,
+                'num_heads': 8,
+                'dropout_rate': 0.1
+            },
+            quantization_bits=args.bit,
+            max_len=96,
+            code_len = 4,
+            num_code = 1000,
+        )
+        ext_encoder.load_state_dict(torch.load(os.path.join(args.ext_weight, 'extenc_epoch_200.pt')))
+        ext_encoder = ext_encoder.to(device)
+
+        cmd_codebook = cmd_encoder.vq_vae._embedding
+        param_codebook = param_encoder.vq_vae._embedding
+        ext_codebook = ext_encoder.vq_vae._embedding
     
     # Initialize optimizer
     network_parameters = list(model.parameters()) 
@@ -85,9 +138,18 @@ def train(args):
                 arglist.append(voxels)
             logits = model(*arglist)
 
-            c_pred = logits.reshape(-1, logits.shape[-1]) 
-            c_target = code.reshape(-1)
-            code_loss = F.cross_entropy(c_pred, c_target)
+            if args.continuous_decode:
+                cmd_code = code[:,:4] 
+                param_code = code[:,4:6] 
+                ext_code = code[:,6:]
+                cmd_embed = cmd_codebook(cmd_code)
+                param_embed = param_codebook(param_code)
+                ext_embed = ext_codebook(ext_code)
+                embed = torch.cat([cmd_embed, param_embed, ext_embed], dim=1)
+            else:
+                c_pred = logits.reshape(-1, logits.shape[-1]) 
+                c_target = code.reshape(-1)
+                code_loss = F.cross_entropy(c_pred, c_target)
            
             total_loss = code_loss
 
@@ -128,6 +190,11 @@ if __name__ == "__main__":
     parser.add_argument("--splits_file", type=str, default=None)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--no_encoder", action='store_false', dest='encoder')
+    parser.add_argument("--continuous_decode", action='store_true')
+    parser.add_argument("--sketch_weight", type=str)
+    parser.add_argument("--ext_weight", type=str)
+    parser.add_argument("--bit", type=int, default=6)
+
 
     args = parser.parse_args()
 
