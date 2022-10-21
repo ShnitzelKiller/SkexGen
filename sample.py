@@ -197,6 +197,7 @@ def compute_sample(cmd_encoder, param_encoder, sketch_decoder, ext_encoder, ext_
             latent_param = param_encoder.up(param_encoder.vq_vae(latent_param)[1])
             latent_ext = ext_encoder.up(ext_encoder.vq_vae(latent_ext)[1])
             latent_sketch = torch.cat((latent_cmd, latent_param), 1)
+            names_final = names
         else:
             cmd_code = codes[:,:4] 
             param_code = codes[:,4:6] 
