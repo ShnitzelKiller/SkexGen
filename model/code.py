@@ -166,19 +166,24 @@ class CondARModel(nn.Module):
                max_len=8,
                classes = 512,
                name='ar_model',
-               use_transformer_encoder=True):
+               use_transformer_encoder=True,
+               continuous_decode=False):
     super(CondARModel, self).__init__()
 
     self.embed_dim = config['embed_dim']
     self.max_len = max_len
     self.dropout = config['dropout_rate']
     self.use_transformer_encoder = use_transformer_encoder
+    self.continuous_decode = continuous_decode
 
     # Position embeddings
     self.pos_embed = PositionalEncoding(max_len=self.max_len, d_model=self.embed_dim)
    
     # Discrete vertex value embeddings
-    self.code_embed = Embedder(classes, self.embed_dim)
+    if not continuous_decode:
+      self.code_embed = Embedder(classes, self.embed_dim)
+    else:
+      self.code_embed = Linear(128, self.embed_dim)
     #self.cond_embed = Embedder(classes, self.embed_dim)
     self.pos_embed_cond = PositionalEncoding(max_len=512, d_model=self.embed_dim)
   
@@ -205,7 +210,10 @@ class CondARModel(nn.Module):
     
     # Code seq embedding 
     if seq_len > 0:
-      embeddings = self.code_embed(code.flatten()).view(bs, code.shape[1], self.embed_dim)  # [bs, seqlen, dim]
+      if not self.continuous_decode:
+        embeddings = self.code_embed(code.flatten()).view(bs, code.shape[1], self.embed_dim)  # [bs, seqlen, dim]
+      else:
+        embeddings = self.code_embed(code)
       decoder_inputs = torch.cat([context_embedding, embeddings], axis=1) # [bs, seqlen+1, dim]
       # Positional embedding
       decoder_inputs = self.pos_embed(decoder_inputs.transpose(0,1))   # [seqlen+1, bs, dim]

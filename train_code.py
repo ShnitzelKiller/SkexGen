@@ -39,7 +39,7 @@ def train(args):
         },
         max_len=args.seqlen,
         classes=128 if args.continuous_decode else args.code,
-        use_transformer_encoder=args.encoder)
+        use_transformer_encoder=args.encoder, continuous_decode=args.continuous_decode)
         model_name = 'code_voxel'
     else:
         model = CodeModel(
@@ -133,10 +133,7 @@ def train(args):
             code = code.to(device)
 
             # Pass through vertex prediction module 
-            arglist = [code[:,:-1]]
-            if args.use_voxels:
-                arglist.append(voxels)
-            logits = model(*arglist)
+            
 
             if args.continuous_decode:
                 cmd_code = code[:,:4] 
@@ -146,7 +143,16 @@ def train(args):
                 param_embed = param_codebook(param_code)
                 ext_embed = ext_codebook(ext_code)
                 embed = torch.cat([cmd_embed, param_embed, ext_embed], dim=1)
+                arglist = [embed[:,:-1,:]]
+                if args.use_voxels:
+                    arglist.append(voxels)
+                preds = model(*arglist)
+                code_loss = F.mse_loss(preds, embed)
             else:
+                arglist = [code[:,:-1]]
+                if args.use_voxels:
+                    arglist.append(voxels)
+                logits = model(*arglist)
                 c_pred = logits.reshape(-1, logits.shape[-1]) 
                 c_target = code.reshape(-1)
                 code_loss = F.cross_entropy(c_pred, c_target)
