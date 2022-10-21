@@ -245,6 +245,7 @@ class CondARModel(nn.Module):
     else:
       preds = self.fc(cond_encoded[0,:,:])
       preds = preds.view(preds.shape[0], self.max_len, self.classes)
+      return preds
 
 
   def sample(self, n_samples, cond_code, deterministic=False):
